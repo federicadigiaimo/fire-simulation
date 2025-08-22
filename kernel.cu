@@ -10,9 +10,11 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#define BLOCK_SIZE 256
+
 //#define SEQUENTIAL_BASELINE
-#define GPU_NAIVE_PARALLEL
-// #define SHARED_MEM_VERSION
+//#define GPU_NAIVE_PARALLEL
+ #define SHARED_MEM_VERSION
 // #define DIVERGENCE_VERSION
 
 // Stato particella
@@ -79,7 +81,7 @@ void updateParticlesCPU(Particle* particles, int numParticles, float dt, float t
             float swirl = 0.3f * sin(time * 2.0f + p.posY * 4.0f);
             p.velX += swirl * dt;
 
-            // Spinta verso l’alto, aria calda che sale
+            // Spinta verso lï¿½alto, aria calda che sale
             p.velY += 0.8f * dt;
 
             // Resistenza dell'aria
@@ -101,7 +103,7 @@ void updateParticlesCPU(Particle* particles, int numParticles, float dt, float t
             p.posZ = 0.0f;
 
 
-            // Velocità iniziale rinascita
+            // Velocitï¿½ iniziale rinascita
             p.velX = (get_random_float() - 0.5f) * 0.8f;
             p.velY = get_random_float() * 1.2f + 1.0f;
             p.velZ = 0.0f;
@@ -147,7 +149,7 @@ __global__ void updateParticlesKernel(Particle* particles, ParticleVertex* vbo_p
         float swirl = 0.3f * sin(time * 2.0f + p.posY * 4.0f);
         p.velX += swirl * dt;
 
-        // Spinta verso l’alto, aria calda che sale
+        // Spinta verso lï¿½alto, aria calda che sale
         p.velY += 0.8f * dt;
 
         // Resistenza dell'aria
@@ -169,7 +171,7 @@ __global__ void updateParticlesKernel(Particle* particles, ParticleVertex* vbo_p
         p.posY = -0.8f + curand_uniform(&localState) * 0.05f;
         p.posZ = 0.0f;
 
-        // Velocità iniziale rinascita
+        // Velocitï¿½ iniziale rinascita
         p.velX = (curand_uniform(&localState) - 0.5f) * 0.8f;
         p.velY = curand_uniform(&localState) * 1.2f + 1.0f;
         p.velZ = 0.0f;
@@ -188,7 +190,112 @@ __global__ void updateParticlesKernel(Particle* particles, ParticleVertex* vbo_p
 
     randStates[idx] = localState;
 }
-#endif // SEQUENTIAL_BASELINE
+
+#endif
+
+#ifdef SHARED_MEM_VERSION
+__global__ void updateParticlesKernel(Particle* particles, ParticleVertex* vbo_ptr,
+    int numParticles, float dt, curandState* randStates, float time)
+{
+    // Ogni blocco avrï¿½ la sua copia privata di questo array
+    __shared__ Particle shared_particles[BLOCK_SIZE];
+
+    // Indice locale: la posizione del thread all'interno del blocco
+    int local_idx = threadIdx.x;
+
+    // Calcolo indirizzo globale thread
+    int global_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (global_idx >= numParticles)
+    {
+        return;
+    }
+    else if (global_idx < numParticles)
+    {
+      // Ogni thread del blocco carica UNA particella dalla memoria globale
+      // alla sua posizione corrispondente nell'array condiviso
+        shared_particles[local_idx] = particles[global_idx];
+    }
+
+    // Sincronizzazione
+   // Questa barriera assicura che NESSUN thread proceda
+   // finchï¿½ TUTTI i thread del blocco non hanno completato la riga precedente.
+   // Ora siamo sicuri che 'shared_particles' ï¿½ completamente piena.
+    __syncthreads();
+
+
+    if (global_idx < numParticles) {
+
+        // Mantieni lo stato di curand (non ï¿½ condiviso).
+        curandState localState = randStates[global_idx];
+        // Leggi lo stato della particella DALLA SHARED MEMORY.
+        // Questo accesso ï¿½ ordini di grandezza piï¿½ veloce di una lettura da memoria globale.
+        Particle p = shared_particles[local_idx];
+
+
+        //Particella viva
+        if (p.lifetime > 0.0f)
+        {
+            if (local_idx > 0) { // Controlla di non essere il primo thread del blocco
+                Particle neighbor_left = shared_particles[local_idx - 1];
+                if (neighbor_left.velY > p.velY) {
+                    p.velX += 0.05f * (neighbor_left.velY - p.velY) * dt;
+                }
+            }
+            // Forza di convergenza, per mantenere forma della fiamma
+            p.velX -= p.posX * 1.2f * dt;
+
+            // Turbolenza
+            float turbulence = sin(p.posY * 3.0f + time * 1.5f + p.posX * 2.0f)
+                + cos(p.posY * 5.0f + time * 2.5f);
+            p.velX += turbulence * 0.4f * dt;
+
+            // Swirl
+            float swirl = 0.3f * sin(time * 2.0f + p.posY * 4.0f);
+            p.velX += swirl * dt;
+
+            // Spinta verso lï¿½alto, aria calda che sale
+            p.velY += 0.8f * dt;
+
+            // Resistenza dell'aria
+            p.velX *= 0.985f;
+            p.velY *= 0.992f;
+
+            // Aggiornamento posizione
+            p.posX += p.velX * dt;
+            p.posY += p.velY * dt;
+            // Diminuzione tempo di vita di delta t
+            p.lifetime -= dt;
+
+        }
+        // Rinascita
+        else
+        {
+            // Posizione iniziale rinascita
+            p.posX = (curand_uniform(&localState) - 0.5f) * 0.8f;
+            p.posY = -0.8f + curand_uniform(&localState) * 0.05f;
+            p.posZ = 0.0f;
+
+            // Velocitï¿½ iniziale rinascita
+            p.velX = (curand_uniform(&localState) - 0.5f) * 0.8f;
+            p.velY = curand_uniform(&localState) * 1.2f + 1.0f;
+            p.velZ = 0.0f;
+
+            // Tempo di vita della particella
+            p.lifetime = 0.8f + curand_uniform(&localState) * 1.2f;
+        }
+
+        particles[global_idx] = p;
+
+        // Scrivo direttamente su VBO aggiornamento dati di posizione e colore delle particelle
+        vbo_ptr[global_idx].x = p.posX;
+        vbo_ptr[global_idx].y = p.posY;
+        vbo_ptr[global_idx].z = 0.0f;
+
+
+        randStates[global_idx] = localState;
+    }
+}
+#endif
 
 const char* vertexShaderSource = "#version 330 core\n"
 "layout (location = 0) in vec3 aPos;\n"
@@ -276,8 +383,6 @@ int main(void)
 
 #if defined(SEQUENTIAL_BASELINE)
 
-    printf("Esecuzione in modalità: SEQUENTIAL_BASELINE (CPU)\n");
-    
     // Allocazione memoria particelle
     Particle* h_particles = (Particle*)malloc(size);
     ParticleVertex* h_vertices = (ParticleVertex*)malloc(vertices_size);
@@ -344,10 +449,8 @@ int main(void)
     free(h_particles);
     free(h_vertices);
 
-#elif defined(GPU_NAIVE_PARALLEL)
-
+#elif defined(GPU_NAIVE_PARALLEL) || defined(SHARED_MEM_VERSION)
     // Definizione dimensione thread block e grid
-    const int BLOCK_SIZE = 256;
     int gridSize = (NUM_PARTICLES + BLOCK_SIZE - 1) / BLOCK_SIZE;
     
     // Allocazione memoria particelle
@@ -432,6 +535,7 @@ int main(void)
     // Rilascio risorse
     cudaFree(d_particles);
     cudaFree(d_randStates);
+
 #endif
 
     glDeleteProgram(shaderProgram);
@@ -441,3 +545,5 @@ int main(void)
 
     return 0;
 }
+
+
