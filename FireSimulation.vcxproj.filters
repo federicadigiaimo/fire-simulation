@@ -12,6 +12,11 @@
     <CudaCompile Include="kernel.cu">
       <Filter>File di origine</Filter>
     </CudaCompile>
+    <CudaCompile Include="File.cu" />
+    <CudaCompile Include="naive.cu" />
+    <CudaCompile Include="sharedmem_pt.1.cu" />
+    <CudaCompile Include="sharedmem_pt2.cu" />
+    <CudaCompile Include="sharedmem_3.cu" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="glad.c">
@@ -20,5 +25,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="fast_math.cuh" />
   </ItemGroup>
 </Project>

@@ -9,6 +9,7 @@
 #include <curand_kernel.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include "fast_math.cuh"
 
 #define BLOCK_SIZE 1024
 #define MAX_NEIGHBORS 32      // Numero massimo di vicini in shared memory
@@ -17,22 +18,22 @@
 #define TILE_HEIGHT 16
 
 //#define SEQUENTIAL_BASELINE
-//#define GPU_NAIVE_PARALLEL
+#define GPU_NAIVE_PARALLEL
 //#define OPTIMIZED_DIVERGENCE_VERSION
-#define OPTIMIZED_DIVERGENCE_2
-//#define SHARED_MEM_VERSION
+//#define OPTIMIZED_DIVERGENCE_2
 
 // Stato particella
-typedef struct {
+struct Particle {
     float posX, posY, posZ;
     float velX, velY, velZ;
     float lifetime;
-    float age;
-} Particle;
+    unsigned int rand_state;
+};
 
 // Dati per rendering particella
 typedef struct {
     float x, y, z;
+    float r, g, b, a;
     float lifetime;
 } ParticleVertex;
 
@@ -50,6 +51,10 @@ void initializeParticles(Particle* particles, int numParticles) {
         particles[i].velX = 0.0f;
         particles[i].velY = 0.0f;
         particles[i].velZ = 0.0f;
+        particles[i].rand_state = rand() + 1;
+#ifdef OPTIMIZED_DIVERGENCE_2
+        particles[i].is_dead = 0;
+#endif
     }
 }
 
@@ -314,9 +319,190 @@ __global__ void updateParticlesKernel(Particle* particles, ParticleVertex* vbo_p
 #endif
 
 #ifdef OPTIMIZED_DIVERGENCE_2
+// Il numero di sotto-passi da eseguire per ogni chiamata al kernel.
+// 2 o 3 è un buon punto di partenza. Puoi sperimentare con questo valore.
+#define SUB_STEPS 2 
+
+__global__ void fireUpdateAndRespawnKernel(
+    Particle* __restrict__ particles,
+    int numParticles,
+    float dt,
+    float time)
+    //int gridWidth)
+{
+    /*nt gx = blockIdx.x * blockDim.x + threadIdx.x;
+    int gy = blockIdx.y * blockDim.y + threadIdx.y;
+    int idx = gy * gridWidth + gx;
+    if (idx >= numParticles) return;*/
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numParticles) return;
+
+
+    // 1. LEGGI DALLA MEMORIA GLOBALE (UNA SOLA VOLTA)
+    Particle p = particles[idx];
+    unsigned int local_rand_state = p.rand_state;
+
+    const float sub_dt = dt / (float)SUB_STEPS;
+
+    // 2. ESEGUI PIÙ CALCOLI NEI REGISTRI
+    // #pragma unroll dice al compilatore di "srotolare" questo loop,
+    // eliminando il costo del loop stesso e rendendolo più veloce.
+#pragma unroll
+    for (int i = 0; i < SUB_STEPS; ++i) {
+
+        // Calcola il tempo corrente per questo sotto-passo per una fisica corretta
+        float current_time = time + (float)i * sub_dt;
+
+        // --- Logica di Simulazione (identica a prima, ma ora è dentro un loop) ---
+
+        // Respawn (usa sub_dt per i calcoli se necessario, anche se qui non serve)
+        if (p.lifetime <= 0.0f) {
+            p.posX = (random_float(local_rand_state) - 0.5f) * 0.2f;
+            p.posY = -0.8f + random_float(local_rand_state) * 0.1f;
+            p.posZ = 0.0f;
+
+            p.velX = (random_float(local_rand_state) - 0.5f) * 0.8f;
+            p.velY = 1.8f + random_float(local_rand_state) * 1.2f;
+            p.velZ = 0.0f;
+
+            p.lifetime = 1.0f + random_float(local_rand_state) * 1.5f;
+        }
+
+        // Fisica (usa sub_dt e current_time)
+        p.velX -= p.posX * 1.2f * sub_dt;
+        p.velY += 0.8f * sub_dt;
+
+        float turbulence = fast_sin(p.posY * 3.0f + current_time * 1.5f + p.posX * 2.0f)
+            + fast_cos(p.posY * 5.0f + current_time * 2.5f);
+        p.velX += turbulence * 0.4f * sub_dt;
+
+        float swirl = 0.3f * fast_sin(current_time * 2.0f + p.posY * 4.0f);
+        p.velX += swirl * sub_dt;
+
+        p.velX *= 0.985f;
+        p.velY *= 0.992f;
+
+        p.posX += p.velX * sub_dt;
+        p.posY += p.velY * sub_dt;
+
+        p.lifetime -= sub_dt;
+
+        if (p.posY > 20.0f) {
+            p.lifetime = -1.0f;
+        }
+    }
+
+    // 3. SCRIVI NELLA MEMORIA GLOBALE (UNA SOLA VOLTA)
+    p.rand_state = local_rand_state; // <-- CAMBIAMENTO QUI
+    particles[idx] = p;
+}
+__global__ void updateVBOKernel(const Particle* __restrict__ particles, ParticleVertex* __restrict__ vbo_ptr, int numParticles)//,int gridWidth)
+{
+    /*int gx = blockIdx.x * blockDim.x + threadIdx.x;
+            int gy = blockIdx.y * blockDim.y + threadIdx.y;
+            int idx = gy * gridWidth + gx;
+            if (idx >= numParticles) return;*/
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numParticles) return;
+
+
+    Particle p = particles[idx];
+    vbo_ptr[idx].x = p.posX;
+    vbo_ptr[idx].y = p.posY;
+    vbo_ptr[idx].z = p.posZ;
+    vbo_ptr[idx].lifetime = p.lifetime;
+}
+
+
+
+
+
+
+
+
+
+
+
+__global__ void updateAndRespawnKernel(
+    Particle* __restrict__ particles,
+    int numParticles,
+    float dt,
+    float time,
+    int gridWidth)
+{
+    /*int gx = blockIdx.x * blockDim.x + threadIdx.x;
+    int gy = blockIdx.y * blockDim.y + threadIdx.y;
+    int idx = gy * gridWidth + gx;
+    if (idx >= numParticles) return;*/
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numParticles) return;
+
+    // 1. Carica la particella nei registri
+    Particle p = particles[idx];
+
+    // 2. Se la particella è viva, aggiorna la sua fisica
+    if (p.lifetime > 0.0f) {
+        // Forza di convergenza
+        p.velX -= p.posX * 1.2f * dt;
+        // Turbolenza (con la LUT)
+        float turbulence = fast_sin(p.posY * 3.0f + time * 1.5f + p.posX * 2.0f)
+            + fast_cos(p.posY * 5.0f + time * 2.5f);
+        p.velX += turbulence * 0.4f * dt;
+        // Swirl (con la LUT)
+        float swirl = 0.3f * fast_sin(time * 2.0f + p.posY * 4.0f);
+        p.velX += swirl * dt;
+        // Spinta verso l’alto
+        p.velY += 0.8f * dt;
+        // Resistenza
+        p.velX *= 0.985f;
+        p.velY *= 0.992f;
+        // Posizione
+        p.posX += p.velX * dt;
+        p.posY += p.velY * dt;
+        // Invecchiamento
+        p.lifetime -= dt;
+    }
+
+    // 3. Se la particella è morta (o è appena morta), falla rinascere
+    if (p.lifetime <= 0.0f) {
+        // Usa il nostro PRNG veloce. Passiamo p.rand_state per riferimento
+        // in modo che venga aggiornato per il prossimo utilizzo.
+        p.posX = (random_float(p.rand_state) - 0.5f) * 0.8f;
+        p.posY = -0.8f + random_float(p.rand_state) * 0.05f;
+        p.posZ = 0.0f;
+
+        p.velX = (random_float(p.rand_state) - 0.5f) * 0.8f;
+        p.velY = random_float(p.rand_state) * 1.2f + 1.0f;
+        p.velZ = 0.0f;
+
+        p.lifetime = 0.8f + random_float(p.rand_state) * 1.2f;
+    }
+
+    // 4. Scrivi lo stato finale della particella in memoria globale
+    particles[idx] = p;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 __global__ void updateAliveKernel(
-    Particle* particles,
-    int* __restrict__ deadFlags, // 1 = morta, 0 = viva
+    Particle* __restrict__ particles,
     int numParticles,
     float dt,
     float time,
@@ -331,15 +517,15 @@ __global__ void updateAliveKernel(
     Particle p = particles[idx];
 
 
-    if (p.lifetime > 0.0f) {
+    if (!p.is_dead) {
         // Forza di convergenza
         p.velX -= p.posX * 1.2f * dt;
         // Turbolenza
-        float turbulence = __sinf(p.posY * 3.0f + time * 1.5f + p.posX * 2.0f)
-            + __cosf(p.posY * 5.0f + time * 2.5f);
+        float turbulence = fast_sin(p.posY * 3.0f + time * 1.5f + p.posX * 2.0f)
+            + fast_cos(p.posY * 5.0f + time * 2.5f);
         p.velX += turbulence * 0.4f * dt;
         // Swirl
-        float swirl = 0.3f * __sinf(time * 2.0f + p.posY * 4.0f);
+        float swirl = 0.3f * fast_sin(time * 2.0f + p.posY * 4.0f);
         p.velX += swirl * dt;
         // Spinta verso l’alto
         p.velY += 0.8f * dt;
@@ -351,147 +537,68 @@ __global__ void updateAliveKernel(
         p.posY += p.velY * dt;
         // Lifetime
         p.lifetime -= dt;
-
-
-        particles[idx] = p;
-        deadFlags[idx] = 0; // viva
+        p.is_dead = 0; // viva 
     }
-    else {
-        // Non aggiorno – sarà respawnata in B
-        deadFlags[idx] = 1; // morta
+    if (p.lifetime <= 0.0f) {
+        p.is_dead = 1;
+    }
+    particles[idx] = p;
+}
+
+__global__ void findDeadParticlesKernel(
+    const Particle* __restrict__ particles,
+    int* __restrict__ dead_indices,
+    int* __restrict__ dead_count,
+    int numParticles,
+    int gridWidth) // <-- AGGIUNGI gridWidth!
+{
+    int gx = blockIdx.x * blockDim.x + threadIdx.x;
+    int gy = blockIdx.y * blockDim.y + threadIdx.y;
+    int idx = gy * gridWidth + gx; // <-- USA LA FORMULA 2D!
+    if (idx >= numParticles) return;
+
+    if (particles[idx].is_dead) {
+        int list_idx = atomicAdd(dead_count, 1);
+        dead_indices[list_idx] = idx;
     }
 }
 
 // Kernel B: respawn SOLO particelle morte – no atomics, nessuna sincronizzazione intra-blocco
 __global__ void respawnDeadKernel(
-    Particle* particles,
-    int* __restrict__ deadFlags,
+    Particle* __restrict__ particles,
+    const int* __restrict__ dead_indices,
     curandState* __restrict__ randStates,
-    int numParticles,
-    int gridWidth)
+    int num_to_respawn)
 {
-    int gx = blockIdx.x * blockDim.x + threadIdx.x;
-    int gy = blockIdx.y * blockDim.y + threadIdx.y;
-    int idx = gy * gridWidth + gx;
-    if (idx >= numParticles) return;
+    // Usa un indice 1D perché viene lanciato come griglia 1D
+    int idx_in_list = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx_in_list >= num_to_respawn) return;
 
-    if (deadFlags[idx]) {
-        Particle p = particles[idx];
-        curandState localState = randStates[idx];
+    // Prendi l'indice reale della particella dalla lista compatta
+    int particle_idx = dead_indices[idx_in_list];
 
-        // *** THIS IS THE MISSING PART ***
-        // Copy-pasted from your original respawn logic:
-        p.posX = (curand_uniform(&localState) - 0.5f) * 0.8f;
-        p.posY = -0.8f + curand_uniform(&localState) * 0.05f;
-        p.posZ = 0.0f;
+    // Carica lo stato della particella e del generatore casuale
+    Particle p = particles[particle_idx];
 
-        p.velX = (curand_uniform(&localState) - 0.5f) * 0.8f;
-        p.velY = curand_uniform(&localState) * 1.2f + 1.0f;
-        p.velZ = 0.0f;
+    // --- Logica di Respawn ---
+    p.posX = (random_float(p.rand_state) - 0.5f) * 0.8f;
+    p.posY = -0.8f + random_float(p.rand_state) * 0.05f;
+    p.posZ = 0.0f;
 
-        p.lifetime = 0.8f + curand_uniform(&localState) * 1.2f;
+    p.velX = (random_float(p.rand_state) - 0.5f) * 0.8f;
+    p.velY = random_float(p.rand_state) * 1.2f + 1.0f;
+    p.velZ = 0.0f;
 
-        particles[idx] = p; // Update global memory
-        randStates[idx] = localState; // Update global randState
-    }
+    p.lifetime = 0.8f + random_float(p.rand_state) * 1.2f;
+
+    p.is_dead = 0;
+
+    // Scrivi i nuovi dati
+    particles[particle_idx] = p;
 }
 
 #endif
 
-__global__ void updateVBOKernel(const Particle* __restrict__ particles, ParticleVertex* __restrict__ vbo_ptr, int numParticles, int gridWidth)
-{
-    int gx = blockIdx.x * blockDim.x + threadIdx.x;
-    int gy = blockIdx.y * blockDim.y + threadIdx.y;
-    int idx = gy * gridWidth + gx;
-    if (idx >= numParticles) return;
-
-    Particle p = particles[idx];
-    vbo_ptr[idx].x = p.posX;
-    vbo_ptr[idx].y = p.posY;
-    vbo_ptr[idx].z = p.posZ;
-    vbo_ptr[idx].lifetime = p.lifetime;
-}
-
-#ifdef SHARED_MEM_VERSION
-__global__ void updateParticlesKernel(Particle* particles, ParticleVertex* vbo_ptr,
-    int numParticles, float dt, curandState* randStates, float time)
-{
-    static auto lastTime = std::chrono::high_resolution_clock::now();
-    auto now = std::chrono::high_resolution_clock::now();
-    float deltaTime = std::chrono::duration<float>(now - lastTime).count();
-    lastTime = now;
-    __shared__ Particle sharedParticles[MAX_NEIGHBORS];
-        int idx = blockIdx.x * blockDim.x + threadIdx.x;
-        if (idx >= numParticles) return;
-
-        Particle p = particles[idx];
-
-        // --- 1. Copia vicini nella shared memory ---
-        int neighborCount = 0;
-        for (int i = 0; i < numParticles && neighborCount < MAX_NEIGHBORS; i++) {
-            float dx = particles[i].posX - p.posX;
-            float dy = particles[i].posY - p.posY;
-            float dz = particles[i].posZ - p.posZ;
-            float dist2 = dx * dx + dy * dy + dz * dz;
-            if (dist2 < CELL_SIZE * CELL_SIZE) {
-                sharedParticles[neighborCount++] = particles[i];
-            }
-        }
-        __syncthreads();
-
-        // --- 2. Calcola velocità media locale ---
-        float velSumX = 0.0f, velSumY = 0.0f, velSumZ = 0.0f;
-        for (int i = 0; i < neighborCount; i++) {
-            velSumX += sharedParticles[i].velX;
-            velSumY += sharedParticles[i].velY;
-            velSumZ += sharedParticles[i].velZ;
-        }
-        float invCount = 1.0f / (float)neighborCount;
-        float velAvgX = velSumX * invCount;
-        float velAvgY = velSumY * invCount;
-        float velAvgZ = velSumZ * invCount;
-
-        // --- 3. Aggiungi turbolenza coerente ---
-        float noiseX = sinf(p.posX * 10.0f + p.age * 5.0f);
-        float noiseY = cosf(p.posY * 10.0f + p.age * 5.0f);
-        float noiseZ = sinf(p.posZ * 10.0f + p.age * 5.0f);
-        float turbulenceScale = 0.1f;
-
-        // --- 4. Aggiorna velocità e posizione ---
-        p.velX = velAvgX + noiseX * turbulenceScale;
-        p.velY = velAvgY + noiseY * turbulenceScale;
-        p.velZ = velAvgZ + noiseZ * turbulenceScale;
-
-        p.posX += p.velX * deltaTime;
-        p.posY += p.velY * deltaTime;
-        p.posZ += p.velZ * deltaTime;
-
-        // --- 5. Aggiorna età e rinascita ---
-        p.age += deltaTime;
-        if (p.age > p.lifetime) {
-            p.posX = 0.0f;          // nuova posizione di emissione
-            p.posY = 0.0f;
-            p.posZ = 0.0f;
-            p.velX = 0.0f;          // nuova velocità iniziale
-            p.velY = 1.0f;
-            p.velZ = 0.0f;
-            p.age = 0.0f;
-            p.lifetime = 1.0f + 0.5f * (float)(idx % 10); // leggero random
-        }
-
-        // --- 6. Scrivi nella memoria globale ---
-
-particles[idx] = p;
-
-// Scrivo direttamente su VBO aggiornamento dati di posizione e colore delle particelle
-vbo_ptr[idx].x = p.posX;
-vbo_ptr[idx].y = p.posY;
-vbo_ptr[idx].z = 0.0f;
-
-}
-
-
-#endif
 
 const char* vertexShaderSource = "#version 330 core\n"
 "layout (location = 0) in vec3 aPos;\n"
@@ -550,50 +657,35 @@ const char* fragmentShaderSource = "#version 330 core\n"
 static const char* kVertexShader = R"(#version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 2) in float aLifetime;
-
-out float vPosY; // Output particle's Y position to fragment shader
-
 uniform mat4 projection;
-
 void main(){
-    gl_Position = projection * vec4(aPos, 1.0);
-    float maxLifetime = 2.0;
-    float sizeFactor = aLifetime / maxLifetime;
-    gl_PointSize = 1.0 + sizeFactor * 5.0;
-
-    // Pass the particle's actual Y position to the fragment shader
-    vPosY = aPos.y;
+gl_Position = projection * vec4(aPos, 1.0);
+float maxLifetime = 2.0;
+float sizeFactor = aLifetime / maxLifetime;
+gl_PointSize = 1.0 + sizeFactor * 5.0;
 }
 )";
 
 
 static const char* kFragmentShader = R"(#version 330 core
-in float vPosY; // Receive particle's Y position from vertex shader
 out vec4 FragColor;
 uniform float time;
-
 float rand(vec2 co){ return fract(sin(dot(co.xy, vec2(12.9898,78.233))) + time * 0.5); }
-
 void main(){
-    float dist = distance(gl_PointCoord, vec2(0.5));
-    float radialAlpha = 1.0 - pow(dist * 2.0, 2.0);
-    if (radialAlpha < 0.05) discard;
-
-    // Normalize particle's Y position within its world bounds (0.0 to 4.0)
-    // Your world_bottom is 0.0f, world_top is 4.0f
-    float normalizedWorldY = (vPosY - 0.0) / (4.0 - 0.0);
-    float t = clamp(normalizedWorldY, 0.0, 1.0); // Ensure t is between 0 and 1
-
-    vec3 baseColor = vec3(1.0, 0.7, 0.6);
-    vec3 midColor = vec3(1.0, 0.5, 0.0);
-    vec3 topColor = vec3(1.0, 0.0, 0.0);
-    vec3 fireColor = mix(baseColor, midColor, t);
-    fireColor = mix(fireColor, topColor, t * t);
-    float noise = rand(gl_FragCoord.xy * 0.1);
-    fireColor += noise * 0.1;
-    float heightAlpha = 1.0 - t;
-    float alpha = radialAlpha * heightAlpha;
-    FragColor = vec4(fireColor, alpha);
+float dist = distance(gl_PointCoord, vec2(0.5));
+float radialAlpha = 1.0 - pow(dist * 2.0, 2.0);
+if (radialAlpha < 0.05) discard;
+float t = gl_FragCoord.y / 800.0;
+vec3 baseColor = vec3(1.0, 0.7, 0.6);
+vec3 midColor = vec3(1.0, 0.5, 0.0);
+vec3 topColor = vec3(1.0, 0.0, 0.0);
+vec3 fireColor = mix(baseColor, midColor, t);
+fireColor = mix(fireColor, topColor, t * t);
+float noise = rand(gl_FragCoord.xy * 0.1);
+fireColor += noise * 0.1;
+float heightAlpha = 1.0 - t;
+float alpha = radialAlpha * heightAlpha;
+FragColor = vec4(fireColor, alpha);
 }
 )";
 
@@ -619,19 +711,20 @@ static GLuint buildProgram(const char* vs, const char* fs) {
     return p;
 }
 
-int main(void) {
 
-    //________________________________INIT RENDERING______________________________________________
+int main(void)
+{
+
+    // INIT RENDERING
     // Init glfw
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
     GLFWwindow* window = glfwCreateWindow(800, 800, "Simulazione Fuoco", NULL, NULL);
     glfwMakeContextCurrent(window);
     gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
-
-    GLuint program = buildProgram(kVertexShader, kFragmentShader);
 
     // Compilazione degli shader 
     unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -659,19 +752,23 @@ int main(void) {
     glm::mat4 projection = glm::ortho(world_left, world_right, world_bottom, world_top, -1.0f, 1.0f);
     int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
 
-    GLuint VBO, VAO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    //___________________________________________________________________________________________________
 
-    ///______________________________INIZIALIZZAZIONE E ALLOCAZIONE MEMORIA (HOST)________________________________
+    // INIZIALIZZAZIONE
     const int NUM_PARTICLES = 1048576;
     size_t size = NUM_PARTICLES * sizeof(Particle);
     size_t vertices_size = NUM_PARTICLES * sizeof(ParticleVertex);
 
+    GLuint VBO, VAO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+
+
+
 #if defined(SEQUENTIAL_BASELINE)
 
-    // Allocazione memoria particelle (host)
+    printf("Esecuzione in modalità: SEQUENTIAL_BASELINE (CPU)\n");
+
+    // Allocazione memoria particelle
     Particle* h_particles = (Particle*)malloc(size);
     ParticleVertex* h_vertices = (ParticleVertex*)malloc(vertices_size);
 
@@ -737,69 +834,40 @@ int main(void) {
     free(h_particles);
     free(h_vertices);
 
-#elif defined(GPU_NAIVE_PARALLEL) || defined(OPTIMIZED_DIVERGENCE_VERSION) || defined(OPTIMIZED_DIVERGENCE_2)
-    
-    // Allocazione memoria particelle (host)
+#elif defined(GPU_NAIVE_PARALLEL)
+
+    // Definizione dimensione thread block e grid
+    const int BLOCK_SIZE = 256;
+    int gridSize = (NUM_PARTICLES + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+    // Allocazione memoria particelle
     Particle* h_particles = (Particle*)malloc(size);
 
     // Inizializzazione particelle
     initializeParticles(h_particles, NUM_PARTICLES);
 
-    // Allocazione memoria particelle (device)
     Particle* d_particles;
     curandState* d_randStates;
-#ifdef OPTIMIZED_DIVERGENCE_2
-    int* d_deadFlags = nullptr;
-    cudaMalloc((void**)&d_deadFlags, NUM_PARTICLES * sizeof(int));
-#endif
     cudaMalloc((void**)&d_particles, size);
     cudaMalloc((void**)&d_randStates, NUM_PARTICLES * sizeof(curandState));
-
-    // Trasferimento particelle inizializzate (Host->Device)
     cudaMemcpy(d_particles, h_particles, size, cudaMemcpyHostToDevice);
-    free(h_particles); 
- 
-    // Definizione dimensione grid e thread block 1D (per initCurandKernel)
-    dim3 gridDim1D((NUM_PARTICLES + BLOCK_SIZE - 1) / BLOCK_SIZE, 1, 1);
-    dim3 blockDim1D(BLOCK_SIZE, 1, 1);
+    free(h_particles);
 
-    // Esecuzione kernel di inizializzazione
-    initCurandKernel << <gridDim1D, blockDim1D >> > (d_randStates, NUM_PARTICLES, time(NULL));
+    // Eseguito solo una volta
+    initCurandKernel << <gridSize, BLOCK_SIZE >> > (d_randStates, NUM_PARTICLES, time(NULL));
 
-    // Definizione dimensione grid e thread block 2D (per updateParticlesKernel)
-    // NUM_PARTICLES -> dataSizeX * dataSizeY = 1,048,576 particelle
-    const int dataSizeX = 1024;
-    const int dataSizeY = 1024;
-
-    dim3 blockDim(32, 16, 1);
-    dim3 gridDim(
-        (dataSizeX + blockDim.x - 1) / blockDim.x,
-        (dataSizeY + blockDim.y - 1) / blockDim.y, 1);
-    int gridWidth = blockDim.x * gridDim.x;
     //OpenGL
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, vertices_size, NULL, GL_DYNAMIC_DRAW);
-
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(ParticleVertex), (void*)0);
     glEnableVertexAttribArray(0);
-
-    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(ParticleVertex), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(ParticleVertex), (void*)(7 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-
-    glEnable(GL_PROGRAM_POINT_SIZE);
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
 
     // Comunicazione a cuda per accesso a vbo
     struct cudaGraphicsResource* cuda_vbo_resource;
     cudaGraphicsGLRegisterBuffer(&cuda_vbo_resource, VBO, cudaGraphicsRegisterFlagsNone);
 
-    while (!glfwWindowShouldClose(window)) 
+    while (!glfwWindowShouldClose(window))
     {
         // Puntatore vbo per cuda, blocco modifiche su vbo (da OpenGL)
         ParticleVertex* d_vbo_ptr;
@@ -815,30 +883,12 @@ int main(void) {
         cudaEventCreate(&stop);
 
         cudaEventRecord(start);
-        
-#if defined(GPU_NAIVE_PARALLEL) || defined(OPTIMIZED_DIVERGENCE_VERSION)
-        // Esecuzione kernel aggiornamento
-        updateParticlesKernel << <gridDim, blockDim >> > (d_particles, d_vbo_ptr, NUM_PARTICLES, 0.016f, d_randStates, t, gridWidth);
 
-        updateVBOKernel << <gridDim, blockDim >> > (d_particles, d_vbo_ptr, NUM_PARTICLES, gridWidth);
-#elif defined(OPTIMIZED_DIVERGENCE_2)
-        // A) Update only alive (mark deads)
-        updateAliveKernel << <gridDim, blockDim >> > (
-            d_particles, d_deadFlags, NUM_PARTICLES, 0.016f, t, gridWidth);
+        // AGGIORNAMENTO STATO PARTICELLE
+        updateParticlesKernel << <gridSize, BLOCK_SIZE >> > (d_particles, d_vbo_ptr, NUM_PARTICLES, 0.016f, d_randStates, t);
 
-
-        // B) Respawn only dead (no atomics)
-        respawnDeadKernel << <gridDim, blockDim >> > (
-            d_particles, d_deadFlags, d_randStates, NUM_PARTICLES, gridWidth);
-
-
-        // C) Copy to VBO
-        updateVBOKernel << <gridDim, blockDim >> > (
-            d_particles, d_vbo_ptr, NUM_PARTICLES, gridWidth);
-#endif
-        //Calcolo del tempo per speedup
         cudaEventRecord(stop);
-        cudaEventSynchronize(stop); //Sincronizzazione, comando bloccante
+        cudaEventSynchronize(stop);
 
         float milliseconds = 0;
         cudaEventElapsedTime(&milliseconds, start, stop);
@@ -852,8 +902,8 @@ int main(void) {
         // DISEGNO
         // Restituzione vbo a OpenGL per disegnare
         cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0);
-        
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+
+        glClearColor(0.0f, 0.0f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         glEnable(GL_BLEND);
@@ -869,13 +919,10 @@ int main(void) {
         glfwPollEvents();
     }
 
-    // Liberazione risorse
+    // Rilascio risorse
     cudaFree(d_particles);
     cudaFree(d_randStates);
-
 #endif
-
-
 
     glDeleteProgram(shaderProgram);
     glDeleteVertexArrays(1, &VAO);
@@ -885,3 +932,134 @@ int main(void) {
     return 0;
 }
 
+int main() {
+
+    srand(time(NULL));
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+    GLFWwindow* window = glfwCreateWindow(800, 800, "Fire Simulation [DEBUG POS_X]", NULL, NULL);
+    glfwMakeContextCurrent(window);
+    gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+    cudaSetDevice(0);
+
+    // Assicurati di usare gli shader di debug per posX che ti ho dato
+    GLuint shaderProgram = buildProgram(kVertexShader, kFragmentShader);
+
+    glm::mat4 projection = glm::ortho(-1.0f, 1.0f, 0.0f, 4.0f, -1.0f, 1.0f);
+    int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
+
+    const int NUM_PARTICLES = 1048576;
+    size_t vertices_size = NUM_PARTICLES * sizeof(ParticleVertex);
+    size_t array_size = NUM_PARTICLES * sizeof(float);
+    size_t rand_array_size = NUM_PARTICLES * sizeof(unsigned int);
+
+    // --- SETUP VBO/VAO AGGIORNATO PER DEBUG POS_X ---
+    GLuint VBO, VAO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, vertices_size, NULL, GL_DYNAMIC_DRAW);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(ParticleVertex), (void*)0);
+    glEnableVertexAttribArray(0);
+    glEnable(GL_PROGRAM_POINT_SIZE);
+    glBindVertexArray(0);
+    // --- FINE SETUP VBO/VAO ---
+
+    struct cudaGraphicsResource* cuda_vbo_resource;
+    cudaGraphicsGLRegisterBuffer(&cuda_vbo_resource, VBO, cudaGraphicsRegisterFlagsNone);
+
+    setupSinLut();
+    cudaDeviceSynchronize();
+
+    ParticlesSoA h_soa, d_soa;
+    // Allocazione Host
+    h_soa.posX = (float*)malloc(array_size); h_soa.posY = (float*)malloc(array_size);// h_soa.posZ = (float*)malloc(array_size);
+    h_soa.velX = (float*)malloc(array_size); h_soa.velY = (float*)malloc(array_size);// h_soa.velZ = (float*)malloc(array_size);
+    h_soa.lifetime = (float*)malloc(array_size); h_soa.rand_state = (unsigned int*)malloc(rand_array_size);
+    // Allocazione Device
+    cudaMalloc(&d_soa.posX, array_size); cudaMalloc(&d_soa.posY, array_size); //cudaMalloc(&d_soa.posZ, array_size);
+    cudaMalloc(&d_soa.velX, array_size); cudaMalloc(&d_soa.velY, array_size); //cudaMalloc(&d_soa.velZ, array_size);
+    cudaMalloc(&d_soa.lifetime, array_size); cudaMalloc(&d_soa.rand_state, rand_array_size);
+
+    initializeParticles_SoA(h_soa, NUM_PARTICLES);
+
+    cudaMemcpy(d_soa.posX, h_soa.posX, array_size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_soa.posY, h_soa.posY, array_size, cudaMemcpyHostToDevice);
+    //cudaMemcpy(d_soa.posZ, h_soa.posZ, array_size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_soa.velX, h_soa.velX, array_size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_soa.velY, h_soa.velY, array_size, cudaMemcpyHostToDevice);
+    //cudaMemcpy(d_soa.velZ, h_soa.velZ, array_size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_soa.lifetime, h_soa.lifetime, array_size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_soa.rand_state, h_soa.rand_state, rand_array_size, cudaMemcpyHostToDevice);
+    cudaDeviceSynchronize();
+
+    cleanup_SoA_Host(h_soa); // Libera la memoria CPU, non serve più
+
+    dim3 blockDim(512);
+    dim3 gridDim((NUM_PARTICLES + blockDim.x - 1) / blockDim.x);
+    float lastTime = 0.0f;
+
+
+    while (!glfwWindowShouldClose(window)) {
+        float currentTime = (float)glfwGetTime();
+        float dt = 0.016f;
+
+        glfwPollEvents();
+
+        ParticleVertex* d_vbo_ptr = nullptr;
+        cudaGraphicsMapResources(1, &cuda_vbo_resource, 0);
+        size_t num_bytes;
+        cudaGraphicsResourceGetMappedPointer((void**)&d_vbo_ptr, &num_bytes, cuda_vbo_resource);
+
+        fireKernel_SoA_FINAL << <gridDim, blockDim >> > (
+            d_soa.posX, d_soa.posY,
+            //d_soa.posZ,
+            d_soa.velX, d_soa.velY,
+            //d_soa.velZ,
+            d_soa.lifetime, d_soa.rand_state,
+            NUM_PARTICLES, dt, currentTime
+            );
+        updateVBOKernel_SoA << <gridDim, blockDim >> > (
+            d_soa.posX, d_soa.posY,
+            //d_soa.posZ,
+            d_soa.lifetime,
+            d_vbo_ptr, NUM_PARTICLES
+            );
+
+
+
+        cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0);
+
+        // --- Rendering OpenGL ---
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+        glUseProgram(shaderProgram);
+        glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, &projection[0][0]);
+
+        glBindVertexArray(VAO);
+        glDrawArrays(GL_POINTS, 0, NUM_PARTICLES);
+        glBindVertexArray(0); // Buona pratica
+
+        glfwSwapBuffers(window);
+    }
+
+    // Cleanup
+    cudaDeviceSynchronize();
+
+    cudaGraphicsUnregisterResource(cuda_vbo_resource);
+    cleanup_SoA_Device(d_soa);
+
+    glDeleteProgram(shaderProgram);
+    glDeleteBuffers(1, &VBO);
+    glDeleteVertexArrays(1, &VAO);
+    glfwDestroyWindow(window);
+    glfwTerminate();
+    return 0;
+}
