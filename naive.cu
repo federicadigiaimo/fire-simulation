@@ -9,8 +9,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-//#define SEQUENTIAL_BASELINE
-#define GPU_NAIVE_PARALLEL
+#define SEQUENTIAL_BASELINE
+//#define GPU_NAIVE_PARALLEL
 
 // Stato particella
 typedef struct {
@@ -30,17 +30,22 @@ float get_random_float() {
 
 void initializeParticles(Particle* particles, int numParticles) {
     for (int i = 0; i < numParticles; i++) {
-        float random_val = (float)rand() / (float)RAND_MAX;
-        particles[i].lifetime = random_val * 3.0f;
-        particles[i].posX = 0.0f;
-        particles[i].posY = 0.0f;
-        particles[i].velX = 0.0f;
-        particles[i].velY = 0.0f;
+        if (i % 1000 == 0) {
+            for (int j = 0; j < 3; j++) {
+                rand();
+            }
+        }
+
+        particles[i].lifetime = get_random_float() * 2.0f + 0.5f;
+
+        particles[i].posX = (get_random_float() - 0.5f) * 0.3f;
+        particles[i].posY = -0.8f + get_random_float() * 0.1f;
+
+        particles[i].velX = (get_random_float() - 0.5f) * 0.1f;
+        particles[i].velY = get_random_float() * 0.2f + 0.1f;
     }
 }
 
-// Kernel per init generatore numeri random
-// Comportamento particelle INDIPENDENTE da altre
 __global__ void initCurandKernel(curandState* states, int numParticles, unsigned long long seed)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -50,7 +55,6 @@ __global__ void initCurandKernel(curandState* states, int numParticles, unsigned
     curand_init(seed, idx, 0, &states[idx]);
 }
 
-//Aggiornamento stato particelle
 #ifdef SEQUENTIAL_BASELINE
 void updateParticlesCPU(Particle* particles, int numParticles, float dt, float time)
 {
@@ -60,49 +64,36 @@ void updateParticlesCPU(Particle* particles, int numParticles, float dt, float t
 
         //Particella viva
         if (p.lifetime > 0.0f) {
-
-            // Forza di convergenza, per mantenere forma della fiamma
             p.velX -= p.posX * 1.2f * dt;
 
-            // Turbolenza
             float turbulence = sin(p.posY * 3.0f + time * 1.5f + p.posX * 2.0f)
                 + cos(p.posY * 5.0f + time * 2.5f);
             p.velX += turbulence * 0.4f * dt;
 
-            // Swirl
             float swirl = 0.3f * sin(time * 2.0f + p.posY * 4.0f);
             p.velX += swirl * dt;
 
-            // Spinta verso l’alto, aria calda che sale
             p.velY += 0.8f * dt;
 
-            // Resistenza dell'aria
             p.velX *= 0.985f;
             p.velY *= 0.992f;
 
-            // Aggiornamento posizione
             p.posX += p.velX * dt;
             p.posY += p.velY * dt;
-            // Diminuzione tempo di vita di delta t
             p.lifetime -= dt;
 
         }
         // Rinascita
         else {
-            // Posizione iniziale rinascita
             p.posX = (get_random_float() - 0.5f) * 0.8f;
             p.posY = -0.8f + get_random_float() * 0.05f;
 
-
-            // Velocità iniziale rinascita
             p.velX = (get_random_float() - 0.5f) * 0.8f;
             p.velY = get_random_float() * 1.2f + 1.0f;
 
-            // Tempo di vita della particella
             p.lifetime = 0.8f + get_random_float() * 1.2f;
         }
 
-        // Particella savlata in array
         particles[idx] = p;
     }
 }
@@ -115,10 +106,7 @@ __global__ void updateParticlesKernel(Particle* particles, ParticleVertex* vbo_p
 
     // Calcolo indirizzo globale thread
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= numParticles)
-    {
-        return;
-    }
+    if (idx >= numParticles) return;
 
     curandState localState = randStates[idx];
     Particle p = particles[idx];
@@ -127,57 +115,45 @@ __global__ void updateParticlesKernel(Particle* particles, ParticleVertex* vbo_p
     if (p.lifetime > 0.0f)
     {
 
-        // Forza di convergenza, per mantenere forma della fiamma
         p.velX -= p.posX * 1.2f * dt;
 
-        // Turbolenza
         float turbulence = sin(p.posY * 3.0f + time * 1.5f + p.posX * 2.0f)
             + cos(p.posY * 5.0f + time * 2.5f);
         p.velX += turbulence * 0.4f * dt;
 
-        // Swirl
         float swirl = 0.3f * sin(time * 2.0f + p.posY * 4.0f);
         p.velX += swirl * dt;
 
-        // Spinta verso l’alto, aria calda che sale
-        p.velY += 0.8f * dt;
+        p.velY += 0.5f * dt;
 
-        // Resistenza dell'aria
         p.velX *= 0.985f;
         p.velY *= 0.992f;
 
-        // Aggiornamento posizione
         p.posX += p.velX * dt;
         p.posY += p.velY * dt;
-        // Diminuzione tempo di vita di delta t
+
         p.lifetime -= dt;
 
     }
     // Rinascita
     else
     {
-        // Posizione iniziale rinascita
-        p.posX = (curand_uniform(&localState) - 0.5f) * 0.8f;
+        p.posX = (curand_uniform(&localState) - 0.5f) * 0.1f;
         p.posY = -0.8f + curand_uniform(&localState) * 0.05f;
 
-        // Velocità iniziale rinascita
         p.velX = (curand_uniform(&localState) - 0.5f) * 0.8f;
         p.velY = curand_uniform(&localState) * 1.2f + 1.0f;
 
-        // Tempo di vita della particella
         p.lifetime = 0.8f + curand_uniform(&localState) * 1.2f;
     }
 
     particles[idx] = p;
-
-    // Scrivo direttamente su VBO aggiornamento dati di posizione e colore delle particelle
     vbo_ptr[idx].x = p.posX;
     vbo_ptr[idx].y = p.posY;
 
-
     randStates[idx] = localState;
 }
-#endif // SEQUENTIAL_BASELINE
+#endif
 
 static const char* kVertexShader = R"(#version 330 core
 layout (location = 0) in vec2 aPos;   // solo x, y
@@ -226,7 +202,6 @@ static GLuint buildProgram(const char* vs, const char* fs) {
 
 int main(void)
 {
-
     srand(time(NULL));
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -238,7 +213,6 @@ int main(void)
     gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
     cudaSetDevice(0);
 
-    // Assicurati di usare gli shader di debug per posX che ti ho dato
     GLuint shaderProgram = buildProgram(kVertexShader, kFragmentShader);
 
     glm::mat4 projection = glm::ortho(-1.0f, 1.0f, 0.0f, 4.0f, -1.0f, 1.0f);
@@ -248,7 +222,6 @@ int main(void)
     size_t size = NUM_PARTICLES * sizeof(Particle);
     size_t vertices_size = NUM_PARTICLES * sizeof(ParticleVertex);
 
-    // --- SETUP VBO/VAO AGGIORNATO PER DEBUG POS_X ---
     GLuint VBO, VAO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
@@ -258,7 +231,6 @@ int main(void)
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, vertices_size, NULL, GL_DYNAMIC_DRAW);
 
-    // Attributo posizione (vec2)
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(ParticleVertex), (void*)0);
     glEnableVertexAttribArray(0);
 
@@ -287,7 +259,7 @@ int main(void)
     // Pulizia vertici
     memset(h_vertices, 0, vertices_size);
 
-    // Misurazione del tempo per un singolo aggiornamento come da linee guida
+    // Misurazione del tempo
     clock_t start_cpu = clock();
 
     updateParticlesCPU(h_particles, NUM_PARTICLES, 0.016f, 0.0f);
@@ -311,7 +283,6 @@ int main(void)
         // Aggiorna stato particelle su CPU
         updateParticlesCPU(h_particles, NUM_PARTICLES, 0.016f, t);
 
-        // Mappa i dati delle particelle aggiornate ai vertici per il rendering
         for (int i = 0; i < NUM_PARTICLES; i++) {
             h_vertices[i].x = h_particles[i].posX;
             h_vertices[i].y = h_particles[i].posY;
@@ -374,23 +345,44 @@ int main(void)
 
     while (!glfwWindowShouldClose(window))
     {
-        // Puntatore vbo per cuda, blocco modifiche su vbo (da OpenGL)
+        glfwPollEvents();
+
+        if (glfwWindowShouldClose(window)) {
+            break;
+        }
+
         ParticleVertex* d_vbo_ptr;
-        cudaGraphicsMapResources(1, &cuda_vbo_resource, 0);
+        cudaError_t mapResult = cudaGraphicsMapResources(1, &cuda_vbo_resource, 0);
+        if (mapResult != cudaSuccess) {
+            printf("Errore mapping CUDA resource: %s\n", cudaGetErrorString(mapResult));
+            break;
+        }
+
         size_t num_bytes;
-        cudaGraphicsResourceGetMappedPointer((void**)&d_vbo_ptr, &num_bytes, cuda_vbo_resource);
+        cudaError_t ptrResult = cudaGraphicsResourceGetMappedPointer((void**)&d_vbo_ptr, &num_bytes, cuda_vbo_resource);
+        if (ptrResult != cudaSuccess) {
+            printf("Errore getting mapped pointer: %s\n", cudaGetErrorString(ptrResult));
+            cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0);
+            break;
+        }
 
         float t = glfwGetTime();
 
-        //Misurazione del tempo del kernel
         cudaEvent_t start, stop;
         cudaEventCreate(&start);
         cudaEventCreate(&stop);
 
         cudaEventRecord(start);
 
-        // AGGIORNAMENTO STATO PARTICELLE
-        updateParticlesKernel << <gridSize, BLOCK_SIZE >> > (d_particles, d_vbo_ptr, NUM_PARTICLES, 0.016f, d_randStates, t);
+        updateParticlesKernel << <gridSize, BLOCK_SIZE >> > 
+            (d_particles, d_vbo_ptr, NUM_PARTICLES, 0.016f, d_randStates, t);
+
+        cudaError_t kernelResult = cudaGetLastError();
+        if (kernelResult != cudaSuccess) {
+            printf("Errore kernel CUDA: %s\n", cudaGetErrorString(kernelResult));
+            cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0);
+            break;
+        }
 
         cudaEventRecord(stop);
         cudaEventSynchronize(stop);
@@ -404,9 +396,16 @@ int main(void)
         }
         frameCount++;
 
+        cudaEventDestroy(start);
+        cudaEventDestroy(stop);
+
         // DISEGNO
         // Restituzione vbo a OpenGL per disegnare
-        cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0);
+        cudaError_t unmapResult = cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0);
+        if (unmapResult != cudaSuccess) {
+            printf("Errore unmapping CUDA resource: %s\n", cudaGetErrorString(unmapResult));
+            break;
+        }
 
         glClearColor(0.0f, 0.0f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
@@ -421,11 +420,18 @@ int main(void)
         glDrawArrays(GL_POINTS, 0, NUM_PARTICLES);
 
         glfwSwapBuffers(window);
+
     }
 
-    // Rilascio risorse
+    cudaGraphicsUnregisterResource(cuda_vbo_resource);
+    cudaDeviceSynchronize();
+
     cudaFree(d_particles);
     cudaFree(d_randStates);
+
+    cudaDeviceReset();
+
+    printf("Cleanup completato.\n");
 #endif
 
     glDeleteProgram(shaderProgram);

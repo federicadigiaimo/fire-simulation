@@ -69,12 +69,6 @@ __global__ void initCurandKernel(curandState* states, int numParticles, unsigned
     curand_init(seed, idx, 0, &states[idx]);
 }
 
-__device__ int3 positionToCell(float3 pos) {
-    return make_int3(floor(pos.x / CELL_SIZE),
-        floor(pos.y / CELL_SIZE),
-        floor(pos.z / CELL_SIZE));
-}
-
 //Aggiornamento stato particelle
 #ifdef SEQUENTIAL_BASELINE
 void updateParticlesCPU(Particle* particles, int numParticles, float dt, float time) 
