@@ -9,8 +9,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-#define SEQUENTIAL_BASELINE
-//#define GPU_NAIVE_PARALLEL
+//#define SEQUENTIAL_BASELINE
+#define GPU_NAIVE_PARALLEL
 
 // Stato particella
 typedef struct {
@@ -38,8 +38,8 @@ void initializeParticles(Particle* particles, int numParticles) {
 
         particles[i].lifetime = get_random_float() * 2.0f + 0.5f;
 
-        particles[i].posX = (get_random_float() - 0.5f) * 0.3f;
-        particles[i].posY = -0.8f + get_random_float() * 0.1f;
+        particles[i].posX = 0.0f;
+        particles[i].posY = 0.0f;
 
         particles[i].velX = (get_random_float() - 0.5f) * 0.1f;
         particles[i].velY = get_random_float() * 0.2f + 0.1f;
