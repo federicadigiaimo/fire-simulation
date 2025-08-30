@@ -10,7 +10,6 @@
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="sharedmem_pt2.cu" />
-    <CudaCompile Include="final_version.cu" />
     <CudaCompile Include="naive.cu">
       <Filter>File di origine</Filter>
     </CudaCompile>
@@ -18,6 +17,9 @@
       <Filter>File di origine</Filter>
     </CudaCompile>
     <CudaCompile Include="sharedmem.cu">
+      <Filter>File di origine</Filter>
+    </CudaCompile>
+    <CudaCompile Include="interaction_particles_draft.cu">
       <Filter>File di origine</Filter>
     </CudaCompile>
   </ItemGroup>

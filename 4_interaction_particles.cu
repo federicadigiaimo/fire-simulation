@@ -125,7 +125,7 @@ __global__ void fireKernel_SOA_FINAL(
             float swirl = 0.3f * fast_sin(fmaf(time, 2.0f, l_posY * 4.0f));
             l_velX = fmaf(swirl, sub_dt, l_velX);
 
-            if (my_turbulence_flag > 0.0f) 
+            if (my_turbulence_flag > 0.0f)
             {
                 float puffDirX = s_turb_force_X[0] * 0.1f;
                 float puffDirY = 0.5f;
@@ -311,7 +311,7 @@ int main() {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE);
     glBindVertexArray(0);
 
-    
+
     struct cudaGraphicsResource* cuda_vbo_resource;
     cudaGraphicsGLRegisterBuffer(&cuda_vbo_resource, VBO, cudaGraphicsRegisterFlagsNone);
 
