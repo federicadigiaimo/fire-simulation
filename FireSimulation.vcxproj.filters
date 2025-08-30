@@ -9,7 +9,17 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="kernel.cu">
+    <CudaCompile Include="sharedmem_pt2.cu" />
+    <CudaCompile Include="naive.cu">
+      <Filter>File di origine</Filter>
+    </CudaCompile>
+    <CudaCompile Include="optimized_warp_divergence.cu">
+      <Filter>File di origine</Filter>
+    </CudaCompile>
+    <CudaCompile Include="sharedmem.cu">
+      <Filter>File di origine</Filter>
+    </CudaCompile>
+    <CudaCompile Include="interaction_particles_draft.cu">
       <Filter>File di origine</Filter>
     </CudaCompile>
   </ItemGroup>
@@ -20,5 +30,10 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="fast_math.cuh">
+      <Filter>File di origine</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
