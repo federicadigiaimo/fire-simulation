@@ -7,19 +7,17 @@
 #define LUT_SIZE 4096
 __constant__ float sin_lut[LUT_SIZE];
 
-__device__ unsigned int xorshift32(unsigned int& state) { // <-- DEVE AVERE LA &
-    state ^= state << 13;
+__device__ unsigned int xorshift32(unsigned int& state) {
     state ^= state >> 17;
     state ^= state << 5;
     return state;
 }
 
-__device__ float random_float(unsigned int& state) { // <-- DEVE AVERE LA &
+__device__ float random_float(unsigned int& state) {
     return (float)xorshift32(state) / 4294967295.0f;
 }
 
 __device__ __forceinline__ float fast_sin(float x) {
-    //if (isnan(x) || isinf(x)) return 0.0f;
     const float PI2 = 6.28318530718f;
     x = fmodf(x, PI2);
     if (x < 0.0f) x += PI2;
@@ -48,4 +46,4 @@ void setupSinLut() {
     cudaMemcpyToSymbol(sin_lut, temp_lut, LUT_SIZE * sizeof(float));
 }
 
-#endif // FAST_MATH_CUH
+#endif

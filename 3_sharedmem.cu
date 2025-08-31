@@ -156,7 +156,7 @@ static const char* kVertexShader = R"(#version 330 core
         gl_Position = projection * vec4(aPosLifetime.xyz, 1.0);
         vLifetime = aPosLifetime.w;
         float sizeFactor = clamp(vLifetime / 2.5, 0.0, 1.0);
-        //gl_PointSize = 1.0 + sizeFactor * 1.0;
+        gl_PointSize = 1.0 + sizeFactor * 1.0;
     }
 )";
 static const char* kFragmentShader = R"(#version 330 core
@@ -278,7 +278,7 @@ int main() {
 
     cleanup_SoA_Host(h_soa);
 
-    dim3 blockDim(512);
+    dim3 blockDim(256);
     dim3 gridDim((NUM_PARTICLES + blockDim.x - 1) / blockDim.x);
 
     size_t shmem_size = blockDim.x * (5 * sizeof(float) + sizeof(unsigned int));
@@ -337,3 +337,4 @@ int main() {
     glfwTerminate();
     return 0;
 }
+

@@ -156,12 +156,12 @@ __global__ void updateParticlesKernel(Particle* particles, ParticleVertex* vbo_p
 #endif
 
 static const char* kVertexShader = R"(#version 330 core
-layout (location = 0) in vec2 aPos;   // solo x, y
+layout (location = 0) in vec2 aPos;
 uniform mat4 projection;
 
 void main(){
     gl_Position = projection * vec4(aPos, 0.0, 1.0);  
-    gl_PointSize = 6.0; // grandezza fissa della particella
+    gl_PointSize = 6.0;
 }
 )";
 static const char* kFragmentShader = R"(#version 330 core
@@ -169,10 +169,10 @@ out vec4 FragColor;
 
 void main(){
     float dist = distance(gl_PointCoord, vec2(0.5));  
-    if (dist > 0.5) discard; // bordo tondo
+    if (dist > 0.5) discard;
 
-    float alpha = 1.0 - dist * 2.0; // dissolvenza dal centro al bordo
-    vec3 color = vec3(1.0, 0.6, 0.1); // arancio fisso
+    float alpha = 1.0 - dist * 2.0;
+    vec3 color = vec3(1.0, 0.6, 0.1);
 
     FragColor = vec4(color, alpha);
 }
