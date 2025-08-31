@@ -26,8 +26,8 @@ struct ParticleVertex {
 void initializeParticles_SoA(ParticlesSoA& p, int numParticles) {
     srand((unsigned)time(NULL));
     for (int i = 0; i < numParticles; ++i) {
-        p.posX[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.15f;
-        p.posY[i] = -0.8f + (rand() / (float)RAND_MAX) * 0.1f;
+        p.posX[i] = 0.0f;
+        p.posY[i] = 0.0f;
         p.velX[i] = 0.0f;
         p.velY[i] = 0.0f;
         p.lifetime[i] = (rand() / (float)RAND_MAX) * 3.0f + 0.5f;
@@ -156,7 +156,7 @@ static const char* kVertexShader = R"(#version 330 core
         gl_Position = projection * vec4(aPosLifetime.xyz, 1.0);
         vLifetime = aPosLifetime.w;
         float sizeFactor = clamp(vLifetime / 2.5, 0.0, 1.0);
-        //gl_PointSize = 1.0 + sizeFactor * 1.0;
+        gl_PointSize = 1.0 + sizeFactor * 1.0;
     }
 )";
 static const char* kFragmentShader = R"(#version 330 core
@@ -278,7 +278,7 @@ int main() {
 
     cleanup_SoA_Host(h_soa);
 
-    dim3 blockDim(512);
+    dim3 blockDim(256);
     dim3 gridDim((NUM_PARTICLES + blockDim.x - 1) / blockDim.x);
 
     size_t shmem_size = blockDim.x * (5 * sizeof(float) + sizeof(unsigned int));
@@ -337,3 +337,4 @@ int main() {
     glfwTerminate();
     return 0;
 }
+

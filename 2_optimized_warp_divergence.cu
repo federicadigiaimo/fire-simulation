@@ -26,8 +26,8 @@ struct ParticleVertex {
 void initializeParticles_SoA(ParticlesSoA& p, int numParticles) {
     srand((unsigned)time(NULL));
     for (int i = 0; i < numParticles; ++i) {
-        p.posX[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.15f;
-        p.posY[i] = -0.8f + (rand() / (float)RAND_MAX) * 0.1f;
+        p.posX[i] = 0.0f;
+        p.posY[i] =0.0f;
         p.velX[i] = 0.0f;
         p.velY[i] = 0.0f;
         p.lifetime[i] = (rand() / (float)RAND_MAX) * 2.0f + 0.5f;
@@ -133,16 +133,13 @@ static const char* kFragmentShader = R"(#version 330 core
     out vec4 FragColor;
     void main(){
         float dist = distance(gl_PointCoord, vec2(0.5));
-        
-        // Questo crea una sfumatura molto più morbida e graduale.
-        // L'esponente più alto (es. 4.0) concentra l'opacità al centro
-        // e rende i bordi molto più trasparenti.
+
         float radialAlpha = 1.0 - pow(dist * 2.0, 4.0);
-        if (radialAlpha < 0.0) discard; // Scarta i frammenti completamente trasparenti
+        if (radialAlpha < 0.0) discard;
 
         float t = clamp(vLifetime / 3.0, 0.0, 1.0);
 
-        vec3 coreColor = vec3(1.0, 0.8, 0.7); // Bianco incandescente
+        vec3 coreColor = vec3(1.0, 0.8, 0.7); // Bianco
         vec3 midColor  = vec3(1.0, 0.5, 0.3);   // Giallo
         vec3 coolColor = vec3(0.9, 0.2, 0.0);   // Arancione/Rosso
 

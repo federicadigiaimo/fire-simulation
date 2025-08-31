@@ -25,14 +25,15 @@ struct ParticleVertex {
     float turbulence_flag;
 };
 
+
 void initializeParticles_SoA(ParticlesSoA& p, int numParticles) {
     srand((unsigned)time(NULL));
     for (int i = 0; i < numParticles; ++i) {
-        p.posX[i] = (rand() / (float)RAND_MAX - 0.5f) * 0.15f;
-        p.posY[i] = -0.8f + (rand() / (float)RAND_MAX) * 0.1f;
+        p.posX[i] = 0.0f;
+        p.posY[i] = 0.0f;
         p.velX[i] = 0.0f;
         p.velY[i] = 0.0f;
-        p.lifetime[i] = (rand() / (float)RAND_MAX) * 3.0f + 0.5f;
+        p.lifetime[i] = (rand() / (float)RAND_MAX) * 4.0f + 0.5f;
         p.turbulence_flag[i] = 0.0f;
         p.rand_state[i] = rand() + 1u;
     }
@@ -173,7 +174,6 @@ static const char* kFragmentShader = R"(#version 330 core
     in float vLifetime;
     in float vTurbulenceFlag;
     
-    // Aggiungi questa variabile per ricevere la posizione dal vertex shader
     in vec3 worldPos;
     
     out vec4 FragColor;
@@ -229,10 +229,10 @@ static const char* kVertexShader = R"(#version 330 core
     uniform mat4 projection;
     out float vLifetime;
     out float vTurbulenceFlag;
-    out vec3 worldPos; // Aggiungi questa linea
+    out vec3 worldPos;
     
     void main(){
-        worldPos = aPosLifetime.xyz; // Passa la posizione world
+        worldPos = aPosLifetime.xyz;
         gl_Position = projection * vec4(aPosLifetime.xyz, 1.0);
         vLifetime = aPosLifetime.w;
         vTurbulenceFlag = aTurbulenceFlag;
@@ -287,7 +287,7 @@ int main() {
     glm::mat4 projection = glm::ortho(-1.0f, 1.0f, 0.0f, 4.0f, -1.0f, 1.0f);
     int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
 
-    const int NUM_PARTICLES = 1048576;
+    const int NUM_PARTICLES = 1048576;//65536; //16777216;  //524288;//2097152;
     size_t vertices_size = NUM_PARTICLES * sizeof(ParticleVertex);
     size_t array_size = NUM_PARTICLES * sizeof(float);
     size_t rand_array_size = NUM_PARTICLES * sizeof(unsigned int);
@@ -365,6 +365,7 @@ int main() {
         size_t num_bytes;
         cudaGraphicsResourceGetMappedPointer((void**)&d_vbo_ptr, &num_bytes, cuda_vbo_resource);
 
+
         fireKernel_SOA_FINAL << <gridDim, blockDim, shmem_size >> > (
             d_soa.posX, d_soa.posY,
             d_soa.velX, d_soa.velY,
@@ -378,6 +379,8 @@ int main() {
             d_soa.lifetime, d_soa.turbulence_flag,
             d_vbo_ptr, NUM_PARTICLES
             );
+
+
 
         cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0);
         cudaDeviceSynchronize();

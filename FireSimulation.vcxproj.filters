@@ -9,17 +9,16 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="sharedmem_pt2.cu" />
-    <CudaCompile Include="naive.cu">
+    <CudaCompile Include="1_naive.cu">
       <Filter>File di origine</Filter>
     </CudaCompile>
-    <CudaCompile Include="optimized_warp_divergence.cu">
+    <CudaCompile Include="2_optimized_warp_divergence.cu">
       <Filter>File di origine</Filter>
     </CudaCompile>
-    <CudaCompile Include="sharedmem.cu">
+    <CudaCompile Include="3_sharedmem.cu">
       <Filter>File di origine</Filter>
     </CudaCompile>
-    <CudaCompile Include="interaction_particles_draft.cu">
+    <CudaCompile Include="4_interaction_particles.cu">
       <Filter>File di origine</Filter>
     </CudaCompile>
   </ItemGroup>
