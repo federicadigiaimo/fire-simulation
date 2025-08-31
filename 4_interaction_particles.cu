@@ -33,7 +33,7 @@ void initializeParticles_SoA(ParticlesSoA& p, int numParticles) {
         p.posY[i] = 0.0f;
         p.velX[i] = 0.0f;
         p.velY[i] = 0.0f;
-        p.lifetime[i] = (rand() / (float)RAND_MAX) * 4.0f + 0.5f;
+        p.lifetime[i] = (rand() / (float)RAND_MAX) * 3.0f + 0.5f;
         p.turbulence_flag[i] = 0.0f;
         p.rand_state[i] = rand() + 1u;
     }
