@@ -36,6 +36,7 @@ bld/
 *.vsp
 *.vspx
 *.sap
+*.sln
 
 # Visual Studio Trace Files
 *.e2e
