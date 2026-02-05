@@ -21,23 +21,30 @@ struct ParticlesSoA {
 };
 
 struct ParticleVertex {
-    float x, y, z, lifetime;
+    float x, y, lifetime;
     float turbulence_flag;
 };
 
 
 void initializeParticles_SoA(ParticlesSoA& p, int numParticles) {
     srand((unsigned)time(NULL));
+
     for (int i = 0; i < numParticles; ++i) {
-        p.posX[i] = 0.0f;
-        p.posY[i] = 0.0f;
+        p.posX[i] = -1000.0f;
+        p.posY[i] = -1000.0f;
+
         p.velX[i] = 0.0f;
         p.velY[i] = 0.0f;
-        p.lifetime[i] = (rand() / (float)RAND_MAX) * 3.0f + 0.5f;
+
+        p.lifetime[i] = ((float)rand() / (float)RAND_MAX) * 2.5f;
+
         p.turbulence_flag[i] = 0.0f;
-        p.rand_state[i] = rand() + 1u;
+
+        unsigned int seed = i * 1324853;
+        p.rand_state[i] = seed;
     }
 }
+
 
 void cleanup_SoA_Host(ParticlesSoA& p) {
     free(p.posX); free(p.posY);
@@ -96,12 +103,13 @@ __global__ void fireKernel_SOA_FINAL(
     unsigned int local_rand_state = p_rand_state[global_idx];
     float my_turbulence_flag = p_turbulence_flag[global_idx];
 
-    bool block_has_turbulence = (s_turb_force_X[0] != 0.0f || s_turb_force_Y[0] != 0.0f);
+    float cached_turb_X = s_turb_force_X[0];
+    float cached_turb_Y = s_turb_force_Y[0];
+    bool block_has_turbulence = (cached_turb_X != 0.0f || cached_turb_Y != 0.0f);
 
     if (block_has_turbulence) {
         my_turbulence_flag = 1.0f;
     }
-
 
     const float sub_dt = dt / (float)SUB_STEPS;
 
@@ -116,25 +124,26 @@ __global__ void fireKernel_SOA_FINAL(
             my_turbulence_flag = 0.0f;
         }
         else {
+            if (l_posY < -100.0f) {
+                l_lifetime -= sub_dt;
+                continue;
+            }
             l_velX -= l_posX * 3.0f * sub_dt;
             l_velY += 2.0f * sub_dt;
 
-            float turbulence = fast_sin(fmaf(l_posY, 3.0f, fmaf(time, 2.0f, l_posX * 2.0f)))
-                + fast_cos(fmaf(l_posY, 5.0f, time * 2.5f));
+            float turbulence = sinf(fmaf(l_posY, 3.0f, fmaf(time, 2.0f, l_posX * 2.0f)))
+                + cosf(fmaf(l_posY, 5.0f, time * 2.5f));
             l_velX = fmaf(turbulence * 0.4f, sub_dt, l_velX);
 
-            float swirl = 0.3f * fast_sin(fmaf(time, 2.0f, l_posY * 4.0f));
+            float swirl = 0.3f * sinf(fmaf(time, 2.0f, l_posY * 4.0f));
             l_velX = fmaf(swirl, sub_dt, l_velX);
 
             if (my_turbulence_flag > 0.0f)
             {
-                float puffDirX = s_turb_force_X[0] * 0.1f;
-                float puffDirY = 0.5f;
-
+                float puffDirX = cached_turb_X * 0.1f;
                 float strength = 12.0f * my_turbulence_flag;
-
                 l_velX += puffDirX * strength * sub_dt;
-                l_velY += puffDirY * strength * sub_dt * 0.5f;
+                l_velY += 0.5f * strength * sub_dt * 0.5f;
             }
 
             l_velX *= 0.985f;
@@ -145,7 +154,6 @@ __global__ void fireKernel_SOA_FINAL(
             l_lifetime -= sub_dt;
         }
     }
-
     p_posX[global_idx] = l_posX;
     p_posY[global_idx] = l_posY;
     p_velX[global_idx] = l_velX;
@@ -156,18 +164,23 @@ __global__ void fireKernel_SOA_FINAL(
 }
 
 __global__ void updateVBOKernel_SoA(
-    float* p_posX, float* p_posY,
-    float* p_lifetime, float* p_turbulence_flag,
-    ParticleVertex* vbo_ptr, int numParticles)
+    float* __restrict__ p_posX,
+    float* __restrict__ p_posY,
+    float* __restrict__ p_lifetime,
+    float* __restrict__ p_turbulence_flag,
+    ParticleVertex* __restrict__ vbo_ptr,
+    int numParticles)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numParticles) return;
 
-    vbo_ptr[idx].x = p_posX[idx];
-    vbo_ptr[idx].y = p_posY[idx];
-    vbo_ptr[idx].z = 0.0f;
-    vbo_ptr[idx].lifetime = p_lifetime[idx];
-    vbo_ptr[idx].turbulence_flag = p_turbulence_flag[idx];
+    float4 packed_data;
+    packed_data.x = p_posX[idx];
+    packed_data.y = p_posY[idx];
+    packed_data.z = p_lifetime[idx];
+    packed_data.w = p_turbulence_flag[idx];
+
+    *(float4*)&vbo_ptr[idx] = packed_data;
 }
 
 static const char* kFragmentShader = R"(#version 330 core
@@ -208,9 +221,7 @@ static const char* kFragmentShader = R"(#version 330 core
             finalColor = smokeColor;
             
             float fireTopHeight = 2.0f;
-            
             float heightFactor = smoothstep(fireTopHeight - 0.2f, fireTopHeight + 0.3f, worldPos.y);
-
             finalAlpha = finalAlpha * 0.3f * heightFactor;
             
             if (finalAlpha < 0.01) discard;
@@ -224,26 +235,30 @@ static const char* kFragmentShader = R"(#version 330 core
 )";
 
 static const char* kVertexShader = R"(#version 330 core
-    layout (location = 0) in vec4 aPosLifetime;
-    layout (location = 1) in float aTurbulenceFlag;
+    layout (location = 0) in vec4 aData;
+    
     uniform mat4 projection;
+
     out float vLifetime;
     out float vTurbulenceFlag;
     out vec3 worldPos;
     
     void main(){
-        worldPos = aPosLifetime.xyz;
-        gl_Position = projection * vec4(aPosLifetime.xyz, 1.0);
-        vLifetime = aPosLifetime.w;
-        vTurbulenceFlag = aTurbulenceFlag;
+        float posX = aData.x;
+        float posY = aData.y;
+        float posZ = 0.0;
+        
+        vLifetime = aData.z;
+        vTurbulenceFlag = aData.w;
+
+        worldPos = vec3(posX, posY, posZ);
+        gl_Position = projection * vec4(worldPos, 1.0);
         
         float sizeFactor = clamp(vLifetime / 2.5, 0.0, 1.0);
         float baseSize = 1.0 + sizeFactor;
-        
-        if (aTurbulenceFlag > 0.1) {
+        if (vTurbulenceFlag > 0.1) {
             baseSize = 1.0 + sizeFactor * 30.0;
         }
-        
         gl_PointSize = baseSize;
     }
 )";
@@ -287,7 +302,7 @@ int main() {
     glm::mat4 projection = glm::ortho(-1.0f, 1.0f, 0.0f, 4.0f, -1.0f, 1.0f);
     int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
 
-    const int NUM_PARTICLES = 1048576;//65536; //16777216;  //524288;//2097152;
+    const int NUM_PARTICLES = 1048576;//2097152;//67108864;//16777216; //524288;///65536;
     size_t vertices_size = NUM_PARTICLES * sizeof(ParticleVertex);
     size_t array_size = NUM_PARTICLES * sizeof(float);
     size_t rand_array_size = NUM_PARTICLES * sizeof(unsigned int);
@@ -298,13 +313,13 @@ int main() {
 
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
+
     glBufferData(GL_ARRAY_BUFFER, vertices_size, NULL, GL_DYNAMIC_DRAW);
 
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(ParticleVertex), (void*)offsetof(ParticleVertex, x));
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(ParticleVertex), (void*)0);
 
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(ParticleVertex), (void*)offsetof(ParticleVertex, turbulence_flag));
+    glDisableVertexAttribArray(1);
 
     glEnable(GL_PROGRAM_POINT_SIZE);
     glEnable(GL_BLEND);
@@ -353,6 +368,7 @@ int main() {
 
     size_t shmem_size = 2 * sizeof(float);
     float lastTime = 0.0f;
+
 
     while (!glfwWindowShouldClose(window)) {
         float currentTime = (float)glfwGetTime();

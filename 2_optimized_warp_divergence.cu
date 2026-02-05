@@ -27,7 +27,7 @@ void initializeParticles_SoA(ParticlesSoA& p, int numParticles) {
     srand((unsigned)time(NULL));
     for (int i = 0; i < numParticles; ++i) {
         p.posX[i] = 0.0f;
-        p.posY[i] =0.0f;
+        p.posY[i] = 0.0f;
         p.velX[i] = 0.0f;
         p.velY[i] = 0.0f;
         p.lifetime[i] = (rand() / (float)RAND_MAX) * 2.0f + 0.5f;

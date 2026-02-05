@@ -18,23 +18,11 @@ __device__ float random_float(unsigned int& state) {
 }
 
 __device__ __forceinline__ float fast_sin(float x) {
-    const float PI2 = 6.28318530718f;
-    x = fmodf(x, PI2);
-    if (x < 0.0f) x += PI2;
-    const float LUT_SCALE_FACTOR = (1.0f / PI2) * (LUT_SIZE - 1);
-    float pos = x * LUT_SCALE_FACTOR;
-    int idx0 = static_cast<int>(pos);
-    float frac = pos - idx0;
-    idx0 = max(0, min(LUT_SIZE - 2, idx0));
-    int idx1 = idx0 + 1;
-
-    float s0 = sin_lut[idx0];
-    float s1 = sin_lut[idx1];
-    return fmaf(frac, s1 - s0, s0);
+    return __sinf(x);
 }
 
 __device__ __forceinline__ float fast_cos(float x) {
-    return fast_sin(x + 1.57079632679f);
+  return __cosf(x);
 }
 
 void setupSinLut() {

@@ -9,8 +9,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-//#define SEQUENTIAL_BASELINE
-#define GPU_NAIVE_PARALLEL
+#define SEQUENTIAL_BASELINE
+//#define GPU_NAIVE_PARALLEL
 
 // Stato particella
 typedef struct {
