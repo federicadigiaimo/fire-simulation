@@ -87,9 +87,10 @@ The architecture maintains maximum framerate (144 FPS) up to **2 million particl
 
 ```text
 ├── src/
-│   ├── kernels/           # CUDA kernel versions (Naive, Optimized, SharedMem)
-│   ├── 4_interaction_particles # CUDA final kernel version
-│   ├── glad.c             # OpenGL Loader
+│   ├── kernels/                  # CUDA kernel versions (Naive, Optimized, SharedMem)
+│   ├── 4_interaction_particles   # CUDA final kernel version
+│   ├── glad.c                    # OpenGL Loader
 │   └── ...
-├── docs/                  # Documentation and Analysis
+├── docs/                         # Documentation and Analysis
 └── README.md
+
