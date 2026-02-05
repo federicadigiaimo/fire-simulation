@@ -8,7 +8,7 @@
 ## Overview
 This project implements a high-performance **real-time particle system** simulating fire and smoke using **CUDA**. The goal was to leverage the parallel architecture of the GPU to overcome the computational limits of traditional CPU simulations.
 
-Starting from a naive implementation, the project applies advanced optimization techniques, such as **Memory Coalescing (SoA)**, **Warp Divergence reduction**, and **Shared Memory** caching, achieving a **68% reduction** in kernel execution time and stable **144 FPS** with up to **2 million particles**.
+Starting from a naive implementation, the project applies advanced optimization techniques—such as **Memory Coalescing (SoA)**, **Warp Divergence reduction**, and **Shared Memory** caching—achieving a **68% reduction** in kernel execution time and stable **144 FPS** with up to **2 million particles**.
 
 ## Key Features
 * **Massive Parallelism:** Simulates millions of interacting particles in real-time.
@@ -20,7 +20,7 @@ Starting from a naive implementation, the project applies advanced optimization 
 ## Tech Stack
 * **Language:** C++ / CUDA C
 * **Graphics API:** OpenGL / GLFW
-* [cite_start]**Hardware Target:** NVIDIA RTX 3060 (Compute Capability 8.6) [cite: 49]
+* **Hardware Target:** NVIDIA RTX 3060 (Compute Capability 8.6)
 
 ---
 
@@ -30,20 +30,20 @@ The core of this project is the incremental optimization strategy. The simulatio
 
 ### 1. Naive Implementation (Baseline)
 * **Approach:** One thread per particle. Direct mapping.
-* **Bottleneck:** **Memory Bound**. [cite_start]The naive use of `struct Particle` (AoS) caused uncoalesced memory accesses and significant latency (~137 cycles/instruction)[cite: 332].
+* **Bottleneck:** **Memory Bound**. The naive use of `struct Particle` (AoS) caused uncoalesced memory accesses and significant latency (~137 cycles/instruction).
 
 ### 2. Memory Optimization (SoA)
 * **Solution:** Converted data structures from *Array of Structures* to *Structure of Arrays*.
-* **Result:** Memory transactions became perfectly coalesced (1 transaction per warp instead of ~5). [cite_start]Latency dropped to **~41 cycles**[cite: 209].
+* **Result:** Memory transactions became perfectly coalesced (1 transaction per warp instead of ~5). Latency dropped to **~41 cycles**.
 
 ### 3. Compute Optimization (Sub-Steps)
 * **Solution:** Implemented sub-stepping physics.
-* [cite_start]**Result:** Increased arithmetic intensity, allowing the scheduler to hide memory latency by executing useful calculations while waiting for data[cite: 232, 236].
+* **Result:** Increased arithmetic intensity, allowing the scheduler to hide memory latency by executing useful calculations while waiting for data.
 
 ### 4. Shared Memory & Interaction
 * **Solution:** Used Shared Memory to cache particle data and manage thread interaction.
-* [cite_start]**Feature:** Implemented a block-based interaction system where "wind" forces are calculated by a leader thread and shared via shared memory to simulate turbulence and smoke effects[cite: 295, 296].
-* [cite_start]**Final Result:** The kernel became **Balanced** (Compute vs Memory) with a latency of just **~13 cycles**[cite: 332].
+* **Feature:** Implemented a block-based interaction system where "wind" forces are calculated by a leader thread and shared via shared memory to simulate turbulence and smoke effects.
+* **Final Result:** The kernel became **Balanced** (Compute vs Memory) with a latency of just **~13 cycles**.
 
 ---
 
@@ -62,7 +62,7 @@ Comparison of execution metrics across different versions of the simulation:
 
 </div>
 
-[cite_start]*Data collected via NVIDIA Nsight Compute on RTX 3060.* [cite: 332]
+*Data collected via NVIDIA Nsight Compute on RTX 3060.*
 
 ### Rendering Scalability (FPS)
 Performance scaling on a 144Hz monitor:
@@ -79,7 +79,7 @@ Performance scaling on a 144Hz monitor:
 
 </div>
 
-[cite_start]The architecture maintains maximum framerate (144 FPS) up to **2 million particles**, saturating the GPU limits only under extreme loads[cite: 342, 344].
+The architecture maintains maximum framerate (144 FPS) up to **2 million particles**, saturating the GPU limits only under extreme loads.
 
 ---
 
@@ -93,4 +93,3 @@ Performance scaling on a 144Hz monitor:
 │   └── ...
 ├── docs/                  # Documentation and Analysis
 └── README.md
-
