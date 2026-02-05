@@ -75,6 +75,8 @@ bld/
 *.opendb
 *.VC.db
 *.ncu-rep
+*.pdf
+*.mov
 
 # Azure Pipelines
 *.azure-pipelines.yml
