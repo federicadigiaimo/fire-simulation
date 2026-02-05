@@ -1,6 +1,10 @@
-# CUDA Fire Simulation 🔥
+# 🔥 CUDA Fire Simulation 🔥
 
-![Simulation Demo](docs/demo.gif)
+<p align="center">
+  <img src="docs/demo.gif" alt="Simulation Demo">
+  <br>
+  </p>
+
 ## Overview
 This project implements a high-performance **real-time particle system** simulating fire and smoke using **CUDA**. The goal was to leverage the parallel architecture of the GPU to overcome the computational limits of traditional CPU simulations.
 
@@ -48,16 +52,22 @@ The core of this project is the incremental optimization strategy. The simulatio
 ### Kernel Optimization Impact
 Comparison of execution metrics across different versions of the simulation:
 
+<div align="center">
+
 | Version | Latency (Cyc/Inst) | Warp Efficiency | Kernel Time (avg) | Improvement |
 | :--- | :--- | :--- | :--- | :--- |
 | **Naive (AoS)** | ~137 | Low (~0.15 warp) | 0.70 ms | - |
 | **SoA (Optimized Mem)** | ~41 | Med (~0.30 warp) | 0.55 ms | 21% |
 | **Final (Shared Mem)** | **~13** | **High (~11 warp)** | **0.24 ms** | **68%** |
 
+</div>
+
 [cite_start]*Data collected via NVIDIA Nsight Compute on RTX 3060.* [cite: 332]
 
 ### Rendering Scalability (FPS)
 Performance scaling on a 144Hz monitor:
+
+<div align="center">
 
 | Particle Count | FPS | Visual Quality |
 | :--- | :--- | :--- |
@@ -67,6 +77,8 @@ Performance scaling on a 144Hz monitor:
 | 16 Million | 76 FPS | Extremely dense |
 | 64 Million | 24 FPS | GPU Saturation |
 
+</div>
+
 [cite_start]The architecture maintains maximum framerate (144 FPS) up to **2 million particles**, saturating the GPU limits only under extreme loads[cite: 342, 344].
 
 ---
@@ -75,9 +87,9 @@ Performance scaling on a 144Hz monitor:
 
 ```text
 ├── src/
-│   ├── kernels/           # CUDA kernels (Naive, Optimized, SharedMem)
+│   ├── kernels/           # CUDA kernel versions (Naive, Optimized, SharedMem)
+│   ├── 4_interaction_particles # CUDA final kernel version
 │   ├── glad.c             # OpenGL Loader
 │   └── ...
-├── include/               # Header files
-├── docs/                  # Documentation and Analysis PDF
+├── docs/                  # Documentation and Analysis
 └── README.md
