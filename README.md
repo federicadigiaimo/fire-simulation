@@ -8,7 +8,7 @@
 ## Overview
 This project implements a high-performance **real-time particle system** simulating fire and smoke using **CUDA**. The goal was to leverage the parallel architecture of the GPU to overcome the computational limits of traditional CPU simulations.
 
-Starting from a naive implementation, the project applies advanced optimization techniques—such as **Memory Coalescing (SoA)**, **Warp Divergence reduction**, and **Shared Memory** caching—achieving a **68% reduction** in kernel execution time and stable **144 FPS** with up to **2 million particles**.
+Starting from a naive implementation, the project applies advanced optimization techniques, such as **Memory Coalescing (SoA)**, **Warp Divergence reduction**, and **Shared Memory** caching, achieving a **68% reduction** in kernel execution time and stable **144 FPS** with up to **2 million particles**.
 
 ## Key Features
 * **Massive Parallelism:** Simulates millions of interacting particles in real-time.
@@ -93,3 +93,4 @@ Performance scaling on a 144Hz monitor:
 │   └── ...
 ├── docs/                  # Documentation and Analysis
 └── README.md
+
