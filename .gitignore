@@ -37,6 +37,8 @@ bld/
 *.vspx
 *.sap
 *.sln
+*.vcxproj 
+*.filters
 
 # Visual Studio Trace Files
 *.e2e
