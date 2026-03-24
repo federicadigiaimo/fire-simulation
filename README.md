@@ -94,4 +94,4 @@ The architecture maintains maximum framerate (144 FPS) up to **2 million particl
 ├── docs/                         # Documentation and demo
 └── README.md
 
-
+```
