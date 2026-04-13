@@ -86,12 +86,15 @@ The architecture maintains maximum framerate (144 FPS) up to **2 million particl
 ## Project Structure
 
 ```text
+├── docs/                         # Documentation and demo
 ├── src/
 │   ├── kernels/                  # CUDA kernel versions (Naive, Optimized, SharedMem)
 │   ├── 4_interaction_particles   # CUDA final kernel version
 │   ├── glad.c                    # OpenGL Loader
 │   └── ...
-├── docs/                         # Documentation and demo
-└── README.md
+├── .gitattributes         # GitHub language detection rules
+├── .gitignore             # Git exclusion rules
+├── LICENSE                # MIT License
+└── README.md              # Project documentation
 
 ```
